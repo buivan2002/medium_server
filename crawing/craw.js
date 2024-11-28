@@ -1,17 +1,30 @@
 import puppeteer from 'puppeteer';
+import fs from 'fs';
+import csvWriter from 'csv-write-stream';
 
 (async () => {
     const browser = await puppeteer.launch({
         protocolTimeout: 3600000 // 1 giờ (3600000 milliseconds)
-      });
-          const page = await browser.newPage();
+    });
+    const page = await browser.newPage();
 
     // Truy cập URL
     await page.goto('https://nghidinh15.vfa.gov.vn/Tracuu', { waitUntil: 'domcontentloaded' });
 
-    const allItems = [];
+    // Mảng chứa dữ liệu tạm thời sẽ được ghi vào CSV
+    const cardTitles = [];
+    const cardTextBold = [];
+    const receptionNumbers = [];
+
     let currentPage = 1;  // Lưu số trang hiện tại
     let hasNextPage = true;  // Biến kiểm tra có còn trang tiếp theo không
+
+    // Tạo writer và pipe vào file CSV
+    const writer = csvWriter();
+    writer.pipe(fs.createWriteStream('products.csv'));  // Mở file 'products.csv' để ghi
+
+    // Ghi header vào file CSV
+    writer.write({ productName: 'Tên sản phẩm', companyName: 'Tên công ty', receptionNumber: 'Số tiếp nhận' });
 
     // Lặp qua các trang
     while (hasNextPage) {
@@ -52,36 +65,43 @@ import puppeteer from 'puppeteer';
             // Trả về các mảng riêng biệt
             return { cardTitles, cardTextBold, receptionNumbers };
         });
-        
-        // In ra dữ liệu thu thập được từ trang hiện tại
-        console.log('Dữ liệu trang hiện tại:', items);
 
-        // Kiểm tra nếu dữ liệu trang hiện tại có khác với dữ liệu của các trang trước đó
-        if (items.length > 0) {
-            allItems.push(...items);  // Gộp dữ liệu từ trang hiện tại vào danh sách tổng
+        // In ra dữ liệu thu thập được từ trang hiện tại
+        // console.log('Dữ liệu trang hiện tại:', items);
+
+        // Lặp qua các mảng và ghi vào file CSV khi có dữ liệu
+        const maxLength = Math.max(items.cardTitles.length, items.cardTextBold.length, items.receptionNumbers.length);
+        
+        // Kiểm tra xem tất cả mảng có cùng số lượng phần tử hay không
+        for (let i = 0; i < maxLength; i++) {
+            // Nếu có đủ dữ liệu từ các mảng
+            const productName = items.cardTitles[i] || '';
+            const companyName = items.cardTextBold[i] || '';
+            const receptionNumber = items.receptionNumbers[i] || '';
+
+            // Ghi dữ liệu vào file CSV dưới dạng đối tượng
+            writer.write({ productName, companyName, receptionNumber });
         }
 
         // Kiểm tra có còn trang tiếp theo không
         hasNextPage = await page.evaluate(() => {
             const nextButton = document.querySelector('a.page-link[ng-click="setCurrent(pagination.current + 1)"]');
-            return nextButton && !nextButton.closest('li').classList.contains('disabled'); // Kiểm tra trong phần tử cha của nút Next
+            return nextButton && !nextButton.closest('li').classList.contains('disabled');
         });
-        
-        
 
         // Nếu có trang tiếp theo, nhấn vào nút "Next"
         if (hasNextPage) {
             currentPage++;
             await page.click('a.page-link[ng-click="setCurrent(pagination.current + 1)"]');
-
-            await new Promise(resolve => setTimeout(resolve, 500)); // Chờ 3 giây
+            await new Promise(resolve => setTimeout(resolve, 500)); // Chờ 500ms
         } else {
             console.log("Không còn trang tiếp theo (nút Next bị vô hiệu hóa).");
         }
     }
 
-    // In ra tất cả dữ liệu đã thu thập
-    console.log('Tất cả dữ liệu từ các trang:', allItems);
+    // Kết thúc ghi vào file CSV
+    writer.end();
+    console.log('Tất cả dữ liệu đã được lưu vào tệp CSV.');
 
     // Đóng trình duyệt
     await browser.close();
